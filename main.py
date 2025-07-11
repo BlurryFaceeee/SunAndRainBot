@@ -1,9 +1,8 @@
 import logging
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters.callback_data import CallbackData
-from tzlocal import get_localzone
 from config import BOT_TOKEN, WEATHER_TOKEN
 import requests
 import asyncio
@@ -11,13 +10,12 @@ from datetime import timedelta, datetime
 import sqlite3
 from database import init_db, add_notification, get_all_user_notifications, delete_notification, \
     toggle_notification_status, get_notifications_to_send
-from scheduler import send_scheduled_notifications, get_weather
+from scheduler import get_weather
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import StateFilter
 import re
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from pytz import timezone, utc
 
 def init_db():
     conn = sqlite3.connect('notifications.db')
@@ -27,7 +25,6 @@ def init_db():
     conn = sqlite3.connect('notifications.db')
     cursor = conn.cursor()
 
-    # Создаем таблицу с правильными столбцами
     cursor.execute('''
             CREATE TABLE IF NOT EXISTS notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,7 +57,6 @@ async def add_weather_notif_handler(message: Message, state: FSMContext):
 async def process_city(message: Message, state: FSMContext):
     city = message.text
     try:
-        # Проверяем, существует ли город через API
         response = requests.get(
             f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_TOKEN}&units=metric&lang=ru"
         )
@@ -79,7 +75,6 @@ async def process_city(message: Message, state: FSMContext):
 @dp.message(StateFilter(WeatherNotification.waiting_for_time))
 async def process_time(message: Message, state: FSMContext):
     time_input = message.text
-    # Проверяем формат времени с помощью регулярного выражения
     if not re.match(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$', time_input):
         await message.reply("❌ Неверный формат времени... Введи в формате ЧЧ:ММ (например, 09:30)")
         return
@@ -89,50 +84,41 @@ async def process_time(message: Message, state: FSMContext):
         "✅ Время принято! Теперь введи своё текущее время в формате ЧЧ:ММ (для определения часового пояса)")
     await state.set_state(WeatherNotification.waiting_for_timezone)
 
-
 @dp.message(StateFilter(WeatherNotification.waiting_for_timezone))
 async def process_timezone(message: Message, state: FSMContext):
     try:
-        # Получаем текущее время пользователя (например, "21:20")
         user_time_input = message.text
         if not re.match(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$', user_time_input):
             await message.reply("❌ Неверный формат... Введи время в формате ЧЧ:ММ")
             return
 
-        # Получаем данные из состояния
         data = await state.get_data()
         notification_time = data[
-            'notification_time']  # Например, "22:20" (когда пользователь хочет получить уведомление)
+            'notification_time']
 
-        # Текущее время бота (серверное время)
-        bot_time_now = datetime.now().strftime("%H:%M")  # Например, "18:20"
+        bot_time_now = datetime.now().strftime("%H:%M")
 
-        # Вычисляем разницу во времени
         def time_to_minutes(t):
             h, m = map(int, t.split(':'))
             return h * 60 + m
 
-        user_min = time_to_minutes(user_time_input)  # 21:20 → 1280 минут
-        bot_min = time_to_minutes(bot_time_now)  # 18:20 → 1100 минут
-        notification_min = time_to_minutes(notification_time)  # 22:20 → 1340 минут
+        user_min = time_to_minutes(user_time_input)
+        bot_min = time_to_minutes(bot_time_now)
+        notification_min = time_to_minutes(notification_time)
 
-        # Разница в минутах (может быть отрицательной!)
-        time_diff = user_min - bot_min  # 1280 - 1100 = +180 минут (3 часа)
+        time_diff = user_min - bot_min
 
-        # Вычисляем время для бота: уведомление_пользователя - разница
-        bot_notification_min = notification_min - time_diff  # 1340 - 180 = 1160 минут (19:20)
+        bot_notification_min = notification_min - time_diff
 
-        # Переводим минуты обратно в "ЧЧ:ММ"
         h = bot_notification_min // 60
         m = bot_notification_min % 60
-        bot_notification_time = f"{h:02d}:{m:02d}"  # "19:20"
+        bot_notification_time = f"{h:02d}:{m:02d}"
 
-        # Сохраняем в БД время для бота и разницу (для отладки)
         add_notification(
             user_id=message.from_user.id,
             city=data['city'],
-            notification_time=bot_notification_time,  # Записываем время по серверу!
-            timezone_offset=str(time_diff / 60)  # Разница в часах (например, "3.0")
+            notification_time=bot_notification_time,
+            timezone_offset=str(time_diff / 60)
         )
 
         await message.answer(
@@ -151,13 +137,11 @@ def format_weather_message(weather_data):
 async def send_weather_notifications(now_utc=None):
     current_time = datetime.now().strftime("%H:%M")
 
-    # Получаем все активные уведомления из БД
     notifications = get_notifications_to_send()
 
     for user_id, city, notification_time, _ in notifications:
         try:
 
-            # Проверяем совпадение времени (±5 минут)
             if current_time == notification_time:
                 response = requests.get(
                     f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_TOKEN}&units=metric&lang=ru"
@@ -207,7 +191,7 @@ class NotificationCallback(CallbackData, prefix="notif"):
 @dp.message(Command("my_weather_notif"))
 async def show_user_notifications(message: Message):
     user_id = message.from_user.id
-    notifications = get_all_user_notifications(user_id)  # Теперь здесь локальное время!
+    notifications = get_all_user_notifications(user_id)
 
     if not notifications:
         await message.answer("У тебя нет активных уведомлений")
@@ -218,7 +202,6 @@ async def show_user_notifications(message: Message):
     for notif_id, city, user_time, is_active in notifications:
         notification_text = f"Город: {city} | Время: {user_time}"
 
-        # Добавляем статус, если уведомление неактивно
         if not is_active:
             notification_text += f"\nСтатус: Приостановлено ⏸"
 
@@ -248,7 +231,6 @@ async def handle_notification_actions(callback: CallbackQuery):
 
     if action == "delete":
         delete_notification(notif_id)
-        # Редактируем существующее сообщение
         await callback.message.edit_text(
             text=f"{callback.message.text}\nУведомление удалено",
             reply_markup=None
@@ -256,14 +238,12 @@ async def handle_notification_actions(callback: CallbackQuery):
     elif action == "toggle":
         new_status = toggle_notification_status(notif_id)
 
-        # Обновляем текст сообщения
-        message_text = callback.message.text.split('\n')[0]  # Берем первую строку
+        message_text = callback.message.text.split('\n')[0]
         if new_status:
-            message_text = message_text.split('\nСтатус:')[0]  # Удаляем строку статуса если есть
+            message_text = message_text.split('\nСтатус:')[0]
         else:
             message_text += f"\nСтатус: Приостановлено"
 
-        # Обновляем кнопки
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(
@@ -333,20 +313,16 @@ async def weather_handler(message: Message):
         await message.reply("Проверь название города!🧐")
 
 async def on_startup():
-    # Запускаем планировщик только после старта бота
     scheduler.add_job(send_weather_notifications,
         'cron',
         minute='*',
-        # Указываем точное время срабатывания (0 секунд)
         second=0,
-        # Время, в течение которого задание может быть запущено позже
         misfire_grace_time=30)
     if not scheduler.running:
         scheduler.start()
     print("Бот и планировщик успешно запущены")
 
 async def on_shutdown():
-    # Корректно останавливаем планировщик
     if scheduler.running:
         scheduler.shutdown()
     print("Планировщик остановлен")
@@ -354,14 +330,11 @@ async def on_shutdown():
 async def main():
     init_db()
 
-    # Настройка логгирования
     logging.basicConfig(level=logging.INFO)
 
-    # Регистрируем обработчики запуска и выключения
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 
-    # Запускаем бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

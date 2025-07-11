@@ -1,13 +1,10 @@
 import sqlite3
-import pytz
 from datetime import datetime, timedelta
-from tzlocal import get_localzone
 
 def init_db():
     conn = sqlite3.connect('notifications.db')
     cursor = conn.cursor()
 
-    # Создаем таблицу с правильными столбцами
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,7 +27,7 @@ def add_notification(user_id: int, city: str, notification_time: str, timezone_o
         INSERT INTO notifications (user_id, city, notification_time, timezone_offset, is_active)
         VALUES (?, ?, ?, ?, ?)
         ''',
-        (user_id, city, notification_time, timezone_offset, 1)  # Добавили is_active=1
+        (user_id, city, notification_time, timezone_offset, 1)
     )
     conn.commit()
     conn.close()
@@ -48,7 +45,6 @@ def get_user_notifications(user_id):
     notifications = cursor.fetchall()
     conn.close()
     return notifications
-
 
 def get_all_user_notifications(user_id):
     conn = sqlite3.connect('notifications.db')
@@ -69,7 +65,6 @@ def get_all_user_notifications(user_id):
     conn.close()
     return notifications
 
-
 def delete_notification(notification_id):
     conn = sqlite3.connect('notifications.db')
     cursor = conn.cursor()
@@ -79,17 +74,14 @@ def delete_notification(notification_id):
     conn.commit()
     conn.close()
 
-
 def toggle_notification_status(notification_id):
     conn = sqlite3.connect('notifications.db')
     cursor = conn.cursor()
 
-    # Получаем текущий статус
     cursor.execute('SELECT is_active FROM notifications WHERE id = ?', (notification_id,))
     current_status = cursor.fetchone()[0]
     new_status = not current_status
 
-    # Обновляем статус
     cursor.execute('''
         UPDATE notifications 
         SET is_active = ? 
@@ -99,7 +91,6 @@ def toggle_notification_status(notification_id):
     conn.commit()
     conn.close()
     return new_status
-
 
 def get_notifications_to_send():
     """Возвращает все активные уведомления."""

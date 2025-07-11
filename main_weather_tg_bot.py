@@ -1,6 +1,5 @@
 import requests
 from pprint import pprint
-from config import weather_token
 
 def get_weather(city, weather_token):
     try:
