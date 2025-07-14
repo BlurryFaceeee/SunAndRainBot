@@ -2,7 +2,7 @@ import asyncio
 from aiogram import Bot
 from datetime import datetime, timedelta
 import sqlite3
-from config import weather_token
+from config import WEATHER_TOKEN
 import requests
 
 async def send_scheduled_notifications(bot: Bot):
