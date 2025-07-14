@@ -54,7 +54,7 @@ async def get_weather(city: str) -> str:
     }
     try:
         r = requests.get(
-            f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={weather_token}&units=metric&lang=ru"
+            f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_TOKEN}&units=metric&lang=ru"
         )
         data = r.json()
 
